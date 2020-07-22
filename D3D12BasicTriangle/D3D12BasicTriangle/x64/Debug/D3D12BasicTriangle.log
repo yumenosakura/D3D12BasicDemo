@@ -1,5 +1,2 @@
 ﻿  D3D12BasicTriangle.cpp
-  main.cpp
-  Generating Code...
-LINK : warning LNK4199: /DELAYLOAD:d3d12.dll ignored; no imports found from d3d12.dll
   D3D12BasicTriangle.vcxproj -> F:\DirectX\D3D12BasicDemo\D3D12BasicTriangle\x64\Debug\D3D12BasicTriangle.exe
