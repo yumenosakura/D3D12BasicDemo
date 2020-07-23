@@ -23,6 +23,7 @@ private:
 	UINT m_frameIndex;
 	static const UINT m_frameCount = 2;
 	UINT m_renderTargetViewHeapDescSize;
+	UINT64 m_fenceValue;
 
 	Microsoft::WRL::ComPtr<ID3D12Device> m_device;
 	Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_commandQueue;

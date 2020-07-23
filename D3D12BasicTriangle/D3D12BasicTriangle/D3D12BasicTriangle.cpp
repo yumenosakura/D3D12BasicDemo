@@ -12,6 +12,15 @@ CD3D12BasicTriangle::CD3D12BasicTriangle(HWND hWnd, UINT width, UINT height)
 	: m_hWnd(hWnd)
 	, m_width(width)
 	, m_height(height)
+	, m_fence(nullptr)
+	, m_fenceEvent(nullptr)
+	, m_fenceValue(1)
+	, m_frameIndex(0)
+	, m_renderTargetViewHeap(nullptr)
+	, m_renderTargetViewHeapDescSize(0)
+	, m_scissorRect()
+	, m_vertexBufferView()
+	, m_viewport()
 {
 }
 
@@ -165,7 +174,7 @@ void CD3D12BasicTriangle::InitializeAssets()
 	Microsoft::WRL::ComPtr<ID3DBlob> pVertexShader;
 	Microsoft::WRL::ComPtr<ID3DBlob> pPixelShader;
 
-	std::wstring shaderFilePath = L"./shaders.hlsl";
+	std::wstring shaderFilePath = L"shaders.hlsl";
 	if (FAILED(D3DCompileFromFile(shaderFilePath.c_str(), nullptr, nullptr, "VSMain", "vs_5_0", 0, 0, &pVertexShader, nullptr)))
 	{
 		throw "Complie the vertex shader failed.";
@@ -250,13 +259,13 @@ void CD3D12BasicTriangle::InitializeAssets()
 	// 6. Create and load the vertex buffers.
 	Vertex triangleVertices[3];
 	triangleVertices[0].position = DirectX::XMFLOAT3(0.0f, 0.25f, 0.0f);
-	triangleVertices[0].color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	triangleVertices[0].color = DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
 
 	triangleVertices[1].position = DirectX::XMFLOAT3(0.25f, -0.25f, 0.0f);
-	triangleVertices[1].color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	triangleVertices[1].color = DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
 
 	triangleVertices[2].position = DirectX::XMFLOAT3(-0.25f, -0.25f, 0.0f);
-	triangleVertices[2].color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	triangleVertices[2].color = DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
 
 	const UINT vertexBufferSize = sizeof(triangleVertices);
 
@@ -321,6 +330,24 @@ void CD3D12BasicTriangle::InitializeAssets()
 
 void CD3D12BasicTriangle::WaitForPreviousFrame()
 {
+	const UINT64 fence = m_fenceValue;
+
+	if (FAILED(m_commandQueue->Signal(m_fence.Get(), fence)))
+	{
+		throw "Command queue signal failed.";
+	}
+
+	if (m_fence->GetCompletedValue() < fence)
+	{
+		if (FAILED(m_fence->SetEventOnCompletion(fence, m_fenceEvent)))
+		{
+			throw "Set event on completion failed.";
+		}
+
+		WaitForSingleObject(m_fenceEvent, INFINITE);
+	}
+
+	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }
 
 //---------------------------------------------------------
@@ -347,7 +374,49 @@ void CD3D12BasicTriangle::PopulateCommandList()
 		throw "Reset the command list failed.";
 	}
 
+	// 3. Set the graphics root signature.
 	m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+
+	// 4. Set the viewport and scissor rectangles.
 	m_commandList->RSSetViewports(1, &m_viewport);
 	m_commandList->RSSetScissorRects(1, &m_scissorRect);
+
+	// 5. Set a resource barrier, indicating the back buffer is to be used as a render target.
+	D3D12_RESOURCE_BARRIER  resourceBarrier;
+	resourceBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	resourceBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+	resourceBarrier.Transition.pResource = m_renderTargets[m_frameIndex].Get();
+	resourceBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	resourceBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+	resourceBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+	m_commandList->ResourceBarrier(1, &resourceBarrier);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE CPUDescHandle;
+	CPUDescHandle.ptr = SIZE_T(INT64(m_renderTargetViewHeap->GetCPUDescriptorHandleForHeapStart().ptr) + INT64(m_frameIndex) * INT64(m_renderTargetViewHeapDescSize));
+	m_commandList->OMSetRenderTargets(1, &CPUDescHandle, FALSE, nullptr);
+
+	// 6. Record commands into the command list.
+	const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+	m_commandList->ClearRenderTargetView(CPUDescHandle, clearColor, 0, nullptr);
+	m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+	m_commandList->DrawInstanced(3, 1, 0, 0);
+
+	// 7. Indicate the back buffer will be used to present after the command list executed.
+	D3D12_RESOURCE_BARRIER resourceBarrier2;
+	resourceBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	resourceBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+	resourceBarrier.Transition.pResource = m_renderTargets[m_frameIndex].Get();
+	resourceBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	resourceBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+	resourceBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+
+	m_commandList->ResourceBarrier(1, &resourceBarrier2);
+
+	// 8. Close the command list to further recording.
+	if (FAILED(m_commandList->Close()))
+	{
+		throw "Close the command list failed.";
+	}
 }

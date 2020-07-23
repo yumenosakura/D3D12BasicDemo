@@ -3,6 +3,7 @@
 
 #include "framework.h"
 #include "resource.h"
+#include "D3D12BasicTriangle.h"
 
 #define MAX_LOADSTRING 100
 
@@ -10,6 +11,7 @@
 HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
+CD3D12BasicTriangle* pD3D12Triangle = nullptr;
 
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -50,6 +52,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
+    }
+
+    if (pD3D12Triangle)
+    {
+        delete pD3D12Triangle;
     }
 
     return (int)msg.wParam;
@@ -105,6 +112,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
         return FALSE;
     }
 
+    // Initialize Direct3D
+    pD3D12Triangle = new CD3D12BasicTriangle(hWnd, 1280, 720);
+
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
 
@@ -144,10 +154,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
     case WM_PAINT:
     {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hWnd, &ps);
-        // TODO: Add any drawing code that uses hdc here...
-        EndPaint(hWnd, &ps);
+        //PAINTSTRUCT ps;
+        //HDC hdc = BeginPaint(hWnd, &ps);
+        //// TODO: Add any drawing code that uses hdc here...
+        //EndPaint(hWnd, &ps);
+        if (pD3D12Triangle)
+        {
+            pD3D12Triangle->OnRender();
+        }
     }
     break;
     case WM_DESTROY:
